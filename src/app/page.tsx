@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Link as LinkIcon, Copy, CheckCircle2, Plane, DollarSign, Sparkles, Trash2, Clock, ExternalLink, LogOut } from "lucide-react";
+import { Link as LinkIcon, Copy, CheckCircle2, Plane, DollarSign, Sparkles, Trash2, Clock, ExternalLink, LogOut, Settings } from "lucide-react";
 import { collection, addDoc, query, onSnapshot, deleteDoc, doc, where } from "firebase/firestore";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { db, auth } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 interface LinkHistorico {
   id: string;
@@ -154,8 +155,15 @@ export default function Home() {
         
         <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-8 border border-slate-100 dark:border-slate-800">
           
-          {/* Botão de Logout no topo */}
-          <div className="absolute top-4 right-4">
+          {/* Botões do topo (Config e Logout) */}
+          <div className="absolute top-4 right-4 flex items-center gap-1">
+            <Link 
+              href="/configuracoes"
+              className="p-2 text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors flex items-center gap-2 text-xs font-bold"
+            >
+              <Settings className="w-4 h-4" />
+              Configurações
+            </Link>
             <button 
               onClick={fazerLogout}
               className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors flex items-center gap-2 text-xs font-bold"
