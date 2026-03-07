@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Link as LinkIcon, Copy, CheckCircle2, Plane, DollarSign, Sparkles, Trash2, Clock, ExternalLink, LogOut, Settings } from "lucide-react";
-import { collection, addDoc, query, onSnapshot, deleteDoc, doc, where } from "firebase/firestore";
+import { Link as LinkIcon, Copy, CheckCircle2, Plane, DollarSign, Sparkles, Trash2, Clock, ExternalLink, LogOut, Settings, XCircle, Undo2 } from "lucide-react";
+import { collection, addDoc, query, onSnapshot, deleteDoc, doc, where, updateDoc } from "firebase/firestore";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { db, auth } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
@@ -15,6 +15,7 @@ interface LinkHistorico {
   url: string;
   criadoEm: string;
   userId: string;
+  status: 'Aberto' | 'Pago' | 'Cancelado';
 }
 
 export default function Home() {
@@ -46,20 +47,23 @@ export default function Home() {
     return () => unsubscribeAuth();
   }, [router]);
 
-  // 2. Escuta o Banco de Dados (Filtrando APENAS os links do usuário logado)
+  // 2. Escuta o Banco de Dados
   useEffect(() => {
     if (!user) return;
 
-    // A mágica do isolamento: busca apenas onde o userId bate com quem está logado
     const q = query(collection(db, "links_gerados"), where("userId", "==", user.uid));
     
     const unsubscribeDB = onSnapshot(q, (querySnapshot) => {
       const linksMapeados: LinkHistorico[] = [];
-      querySnapshot.forEach((doc) => {
-        linksMapeados.push({ id: doc.id, ...doc.data() } as LinkHistorico);
+      querySnapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        linksMapeados.push({ 
+          id: docSnap.id, 
+          status: data.status || 'Aberto', 
+          ...data 
+        } as LinkHistorico);
       });
       
-      // Ordenando do mais novo para o mais velho no Front-end
       linksMapeados.sort((a, b) => new Date(b.criadoEm).getTime() - new Date(a.criadoEm).getTime());
       
       setHistorico(linksMapeados);
@@ -75,7 +79,7 @@ export default function Home() {
 
   const gerarLink = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return; // Segurança extra
+    if (!user) return; 
     
     const valorNumerico = valor.replace(/\D/g, ""); 
     if (!pacote || !valorNumerico) return;
@@ -95,7 +99,8 @@ export default function Home() {
         valor: valorFormatado,
         url: urlFinal,
         criadoEm: new Date().toISOString(),
-        userId: user.uid // Carimbando o dono do link no banco de dados
+        userId: user.uid,
+        status: 'Aberto' 
       });
       
       setPacote("");
@@ -103,6 +108,17 @@ export default function Home() {
     } catch (error) {
       console.error("Erro ao salvar no banco:", error);
       alert("Erro ao salvar. Verifique suas permissões no banco de dados.");
+    }
+  };
+
+  const atualizarStatus = async (id: string, novoStatus: 'Aberto' | 'Pago' | 'Cancelado') => {
+    try {
+      await updateDoc(doc(db, "links_gerados", id), {
+        status: novoStatus
+      });
+    } catch (error) {
+      console.error("Erro ao atualizar status:", error);
+      alert("Erro ao mover orçamento. Tente novamente.");
     }
   };
 
@@ -138,6 +154,15 @@ export default function Home() {
     return new Date(dataIso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
   };
 
+  // Divisão dos Dados para o Kanban
+  const linksAbertos = historico.filter(item => item.status === 'Aberto');
+  const linksPagos = historico.filter(item => item.status === 'Pago');
+  const linksCancelados = historico.filter(item => item.status === 'Cancelado');
+
+  // Lógica Financeira: Somatório dos Lucros (Mágica do reduce)
+  const valorTotalFaturado = linksPagos.reduce((acumulador, item) => acumulador + item.valor, 0);
+  const valorTotalAReceber = linksAbertos.reduce((acumulador, item) => acumulador + item.valor, 0);
+
   if (verificandoAuth) {
     return (
       <div className="w-full min-h-screen flex items-center justify-center">
@@ -147,38 +172,37 @@ export default function Home() {
   }
 
   return (
-    <div className="w-full max-w-5xl mx-auto my-8 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+    <div className="w-full max-w-[1400px] mx-auto my-8 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start px-4">
       
       {/* COLUNA ESQUERDA: GERADOR */}
-      <div className="lg:col-span-5 relative">
+      <div className="lg:col-span-4 relative">
         <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-[24px] blur opacity-20 dark:opacity-40 animate-pulse duration-3000"></div>
         
-        <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-8 border border-slate-100 dark:border-slate-800">
+        <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-6 border border-slate-100 dark:border-slate-800">
           
-          {/* Botões do topo (Config e Logout) */}
           <div className="absolute top-4 right-4 flex items-center gap-1">
             <Link 
               href="/configuracoes"
-              className="p-2 text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors flex items-center gap-2 text-xs font-bold"
+              className="p-2 text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors flex items-center justify-center"
+              title="Configurações"
             >
-              <Settings className="w-4 h-4" />
-              Configurações
+              <Settings className="w-5 h-5" />
             </Link>
             <button 
               onClick={fazerLogout}
-              className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors flex items-center gap-2 text-xs font-bold"
+              className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors flex items-center justify-center"
+              title="Sair"
             >
-              <LogOut className="w-4 h-4" />
-              Sair
+              <LogOut className="w-5 h-5" />
             </button>
           </div>
 
-          <div className="mb-8 text-center mt-2">
+          <div className="mb-8 text-center mt-4">
             <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-blue-50 dark:bg-blue-900/30 mb-4">
               <Sparkles className="w-6 h-6 text-blue-600 dark:text-blue-400" />
             </div>
-            <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">Agência Pay</h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 font-medium">Nova Simulação de Venda</p>
+            <h1 className="text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">Agência Pay</h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 font-medium">Nova Simulação</p>
           </div>
 
           <form onSubmit={gerarLink} className="space-y-5">
@@ -193,10 +217,10 @@ export default function Home() {
                 <input
                   id="pacote"
                   type="text"
-                  placeholder="Ex: Pacote Maceió 5 Dias"
+                  placeholder="Ex: Pacote Maceió"
                   value={pacote}
                   onChange={(e) => setPacote(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-600 outline-none transition-all font-medium placeholder:text-slate-400"
+                  className="w-full pl-11 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-600 outline-none transition-all font-medium placeholder:text-slate-400"
                   required
                 />
               </div>
@@ -204,7 +228,7 @@ export default function Home() {
 
             <div className="space-y-1.5">
               <label htmlFor="valor" className="block text-sm font-semibold text-slate-700 dark:text-slate-300">
-                Valor Total Base
+                Valor Base (R$)
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
@@ -216,7 +240,7 @@ export default function Home() {
                   placeholder="R$ 0,00"
                   value={valor}
                   onChange={(e) => formatarMoeda(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-600 outline-none transition-all font-medium placeholder:text-slate-400"
+                  className="w-full pl-11 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-600 outline-none transition-all font-medium placeholder:text-slate-400"
                   required
                 />
               </div>
@@ -224,93 +248,144 @@ export default function Home() {
 
             <button
               type="submit"
-              className="w-full mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-4 px-4 rounded-xl flex items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5 shadow-lg shadow-blue-500/30"
+              className="w-full mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5 shadow-lg shadow-blue-500/30"
             >
               <LinkIcon className="w-5 h-5" />
-              Gerar & Salvar Link
+              Gerar Orçamento
             </button>
           </form>
-
-          {linkGerado && (
-            <div className="mt-8 p-1 rounded-xl bg-gradient-to-r from-green-400 to-emerald-500 animate-in fade-in zoom-in duration-300">
-              <div className="bg-white dark:bg-slate-900 rounded-lg p-4 text-center">
-                <CheckCircle2 className="w-8 h-8 text-green-500 mx-auto mb-2" />
-                <p className="font-bold text-slate-900 dark:text-white mb-1">Simulação criada com sucesso!</p>
-                <p className="text-xs text-slate-500">O link já foi salvo no seu histórico ao lado.</p>
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
-      {/* COLUNA DIREITA: HISTÓRICO */}
-      <div className="lg:col-span-7 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-800 p-6 flex flex-col h-full min-h-[500px]">
-        <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-100 dark:border-slate-800">
-          <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <Clock className="w-5 h-5 text-blue-500" />
-            Histórico Recente
-          </h2>
-          <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-xs font-bold px-3 py-1 rounded-full">
-            {historico.length} simulações
-          </span>
+      {/* COLUNA DIREITA: CRM KANBAN */}
+      <div className="lg:col-span-8 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-800 p-6 flex flex-col h-full min-h-[600px] overflow-hidden">
+        
+        {/* CABEÇALHO DO CRM COM DASHBOARD FINANCEIRO */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 pb-4 border-b border-slate-100 dark:border-slate-800 gap-4">
+          <div>
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <Clock className="w-5 h-5 text-blue-500" />
+              CRM de Vendas
+            </h2>
+            <p className="text-xs text-slate-500 mt-1">Gerencie o status e o faturamento da agência</p>
+          </div>
+
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            {/* Bloco A Receber */}
+            <div className="flex-1 sm:flex-none bg-blue-50 dark:bg-blue-900/20 px-3 py-2 rounded-xl border border-blue-200 dark:border-blue-800/30">
+              <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">A Receber</p>
+              <p className="text-sm font-black text-blue-700 dark:text-blue-300">{formatarMoeda(valorTotalAReceber)}</p>
+            </div>
+            
+            {/* Bloco Faturado (Lucro) */}
+            <div className="flex-1 sm:flex-none bg-green-50 dark:bg-green-900/20 px-4 py-2 rounded-xl border border-green-200 dark:border-green-800/30 shadow-sm">
+              <p className="text-[10px] font-bold text-green-600 dark:text-green-400 uppercase tracking-wider">Total Faturado</p>
+              <p className="text-lg font-black text-green-700 dark:text-green-300">{formatarMoeda(valorTotalFaturado)}</p>
+            </div>
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-4">
-          {carregandoDB ? (
-            <div className="flex flex-col items-center justify-center h-full text-slate-400">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>
-              <p>Carregando histórico...</p>
-            </div>
-          ) : historico.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-center text-slate-400 mt-12">
-              <Plane className="w-12 h-12 mb-4 opacity-20" />
-              <p>Nenhuma simulação gerada ainda.</p>
-              <p className="text-sm mt-1">Crie seu primeiro link de pagamento ao lado.</p>
-            </div>
-          ) : (
-            historico.map((item) => (
-              <div key={item.id} className="group p-4 rounded-xl border border-slate-100 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-500/50 bg-slate-50 dark:bg-slate-800/30 transition-all">
-                <div className="flex justify-between items-start mb-2">
-                  <div>
-                    <h3 className="font-bold text-slate-900 dark:text-white">{item.pacote}</h3>
-                    <p className="text-xs text-slate-500 mt-0.5">{formatarData(item.criadoEm)}</p>
-                  </div>
-                  <span className="font-black text-blue-600 dark:text-blue-400 bg-white dark:bg-slate-900 px-2 py-1 rounded shadow-sm text-sm">
-                    {formatarMoeda(item.valor)}
-                  </span>
-                </div>
-                
-                <div className="flex items-center gap-2 mt-4 pt-4 border-t border-slate-200 dark:border-slate-700/50">
-                  <button
-                    onClick={() => copiarParaAreaDeTransferencia(item.url, item.id)}
-                    className="flex-1 flex items-center justify-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-sm font-semibold py-2 px-3 rounded-lg transition-colors"
-                  >
-                    {copiado === item.id ? <CheckCircle2 className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
-                    {copiado === item.id ? "Copiado!" : "Copiar Link"}
-                  </button>
-                  <a
-                    href={item.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="Testar Link"
-                    className="p-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 hover:text-blue-500 text-slate-500 rounded-lg transition-colors"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                  </a>
-                  <button
-                    onClick={() => deletarLink(item.id)}
-                    title="Apagar"
-                    className="p-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 hover:text-red-500 text-slate-500 rounded-lg transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+        {carregandoDB ? (
+          <div className="flex flex-col items-center justify-center h-full text-slate-400">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>
+            <p>Carregando pipeline...</p>
+          </div>
+        ) : (
+          <div className="flex-1 overflow-x-auto pb-4 custom-scrollbar">
+            <div className="flex gap-4 min-w-[850px] h-full">
+              
+              {/* COLUNA 1: EM ABERTO */}
+              <div className="flex-1 flex flex-col bg-slate-50 dark:bg-slate-800/30 rounded-2xl p-4 border border-slate-200 dark:border-slate-700">
+                <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-4 flex justify-between items-center">
+                  <span>Aguardando Pagamento</span>
+                  <span className="bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-400 px-2 py-0.5 rounded text-xs">{linksAbertos.length}</span>
+                </h3>
+                <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-1">
+                  {linksAbertos.map(item => (
+                    <div key={item.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm relative group">
+                      <div className="flex justify-between items-start mb-1">
+                        <h4 className="font-bold text-slate-900 dark:text-white text-sm line-clamp-2 pr-2">{item.pacote}</h4>
+                        <span className="font-black text-blue-600 dark:text-blue-400 text-sm">{formatarMoeda(item.valor)}</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500 mb-3">{formatarData(item.criadoEm)}</p>
+                      
+                      <div className="flex gap-2 mb-3">
+                        <button onClick={() => copiarParaAreaDeTransferencia(item.url, item.id)} className="flex-1 flex items-center justify-center gap-1 p-1.5 bg-slate-100 dark:bg-slate-700 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 text-xs font-semibold transition-colors">
+                          {copiado === item.id ? <CheckCircle2 size={14} className="text-green-500"/> : <Copy size={14} />} Copiar
+                        </button>
+                        <a href={item.url} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-slate-100 dark:bg-slate-700 rounded-lg text-slate-600 dark:text-slate-300 hover:text-blue-500 transition-colors">
+                          <ExternalLink size={14} />
+                        </a>
+                      </div>
+
+                      <div className="flex gap-2 pt-2 border-t border-slate-100 dark:border-slate-700/50">
+                        <button onClick={() => atualizarStatus(item.id, 'Pago')} className="flex-1 bg-green-50 hover:bg-green-100 dark:bg-green-900/20 dark:hover:bg-green-900/40 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400 text-xs font-bold py-1.5 rounded-lg flex items-center justify-center gap-1 transition-colors">
+                          <CheckCircle2 size={14}/> Pago
+                        </button>
+                        <button onClick={() => atualizarStatus(item.id, 'Cancelado')} className="p-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 rounded-lg flex items-center justify-center transition-colors" title="Marcar como Perdido">
+                          <XCircle size={14}/>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
-            ))
-          )}
-        </div>
-      </div>
 
+              {/* COLUNA 2: PAGOS */}
+              <div className="flex-1 flex flex-col bg-green-50/50 dark:bg-green-900/10 rounded-2xl p-4 border border-green-100 dark:border-green-900/30">
+                <h3 className="text-sm font-bold text-green-700 dark:text-green-400 mb-4 flex justify-between items-center">
+                  <span>Vendas Fechadas</span>
+                  <span className="bg-green-200 text-green-800 dark:bg-green-900 dark:text-green-300 px-2 py-0.5 rounded text-xs">{linksPagos.length}</span>
+                </h3>
+                <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-1">
+                  {linksPagos.map(item => (
+                    <div key={item.id} className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-green-200 dark:border-green-800/50 shadow-sm opacity-90 hover:opacity-100 transition-opacity">
+                      <div className="flex justify-between items-start mb-1">
+                        <h4 className="font-bold text-slate-700 dark:text-slate-300 text-sm line-clamp-1 strike-through">{item.pacote}</h4>
+                        <span className="font-black text-green-600 dark:text-green-400 text-sm">{formatarMoeda(item.valor)}</span>
+                      </div>
+                      <div className="flex justify-between items-center mt-3 pt-2 border-t border-slate-100 dark:border-slate-700/50">
+                        <button onClick={() => atualizarStatus(item.id, 'Aberto')} className="text-slate-400 hover:text-blue-500 text-xs flex items-center gap-1 transition-colors">
+                          <Undo2 size={12}/> Reabrir
+                        </button>
+                        <button onClick={() => deletarLink(item.id)} className="text-slate-400 hover:text-red-500 transition-colors">
+                          <Trash2 size={14}/>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* COLUNA 3: CANCELADOS */}
+              <div className="flex-1 flex flex-col bg-slate-100 dark:bg-slate-800/50 rounded-2xl p-4 border border-slate-200 dark:border-slate-700 opacity-80">
+                <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 mb-4 flex justify-between items-center">
+                  <span>Perdidos / Cancelados</span>
+                  <span className="bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300 px-2 py-0.5 rounded text-xs">{linksCancelados.length}</span>
+                </h3>
+                <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-1">
+                  {linksCancelados.map(item => (
+                    <div key={item.id} className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+                      <div className="flex justify-between items-start mb-1">
+                        <h4 className="font-semibold text-slate-500 dark:text-slate-500 text-sm line-clamp-1">{item.pacote}</h4>
+                      </div>
+                      <div className="flex justify-between items-center mt-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+                        <button onClick={() => atualizarStatus(item.id, 'Aberto')} className="text-slate-400 hover:text-blue-500 text-xs flex items-center gap-1 transition-colors">
+                          <Undo2 size={12}/> Recuperar
+                        </button>
+                        <button onClick={() => deletarLink(item.id)} className="text-slate-400 hover:text-red-500 transition-colors">
+                          <Trash2 size={14}/>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
