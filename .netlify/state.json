@@ -1,0 +1,21 @@
+{
+	"siteId": "3c1b7045-0eb0-4369-a16c-41395c3aaeee",
+	"geolocation": {
+		"data": {
+			"city": "Aracaju",
+			"country": {
+				"code": "BR",
+				"name": "Brazil"
+			},
+			"subdivision": {
+				"code": "SE",
+				"name": "Sergipe"
+			},
+			"timezone": "America/Maceio",
+			"latitude": -10.9823,
+			"longitude": -37.1033,
+			"postalCode": "49000"
+		},
+		"timestamp": 1772943845011
+	}
+}
