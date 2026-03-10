@@ -33,23 +33,28 @@ export default function CheckoutPage() {
   
   const [configuracoes, setConfiguracoes] = useState<ConfiguracoesAtuais | null>(null);
 
-  // 1. Decodifica a URL
+  // 1. Busca os dados reais do banco usando o ID (Hash) da URL
   useEffect(() => {
-    if (!hashParam) return;
-    try {
-      const cleanHash = decodeURIComponent(hashParam);
-      const base64Decoded = atob(cleanHash);
-      const parsed = JSON.parse(decodeURIComponent(base64Decoded));
-      
-      if (parsed.p && parsed.v) {
-        setData(parsed);
-      } else {
+    const fetchLinkData = async () => {
+      if (!hashParam) return;
+      try {
+        const docRef = doc(db, "links_gerados", hashParam);
+        const docSnap = await getDoc(docRef);
+        
+        if (docSnap.exists()) {
+          const dados = docSnap.data();
+          setData({ p: dados.pacote, v: dados.valor });
+        } else {
+          // Se o ID não existir no banco, ou se você apagou no Kanban, o link morre.
+          setError(true);
+        }
+      } catch (e) {
+        console.error("Erro ao buscar dados do link:", e);
         setError(true);
       }
-    } catch (e) {
-      console.error("Erro ao decodificar URL:", e);
-      setError(true);
-    }
+    };
+
+    fetchLinkData();
   }, [hashParam]);
 
   // 2. Busca as taxas e contatos no Firebase

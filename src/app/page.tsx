@@ -7,6 +7,7 @@ import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { db, auth } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import confetti from 'canvas-confetti';
 
 interface LinkHistorico {
   id: string;
@@ -86,23 +87,23 @@ export default function Home() {
 
     const valorFormatado = Number(valorNumerico) / 100;
 
-    const payload = { p: pacote, v: valorFormatado };
-    const jsonString = JSON.stringify(payload);
-    const hashSeguro = encodeURIComponent(btoa(encodeURIComponent(jsonString)));
-    const urlFinal = `${window.location.origin}/checkout/${hashSeguro}`;
-    
-    setLinkGerado(urlFinal);
-
     try {
-      await addDoc(collection(db, "links_gerados"), {
+      // 1. Salva no banco PRIMEIRO para o Firebase gerar o ID seguro
+      const docRef = await addDoc(collection(db, "links_gerados"), {
         pacote: pacote,
         valor: valorFormatado,
-        url: urlFinal,
         criadoEm: new Date().toISOString(),
         userId: user.uid,
         status: 'Aberto' 
       });
       
+      // 2. Monta a URL usando APENAS o ID do documento
+      const urlFinal = `${window.location.origin}/checkout/${docRef.id}`;
+      
+      // 3. Atualiza o documento recém-criado com a sua própria URL (para o botão Copiar funcionar no Painel)
+      await updateDoc(docRef, { url: urlFinal });
+      
+      setLinkGerado(urlFinal);
       setPacote("");
       setValor("");
     } catch (error) {
@@ -111,11 +112,40 @@ export default function Home() {
     }
   };
 
-  const atualizarStatus = async (id: string, novoStatus: 'Aberto' | 'Pago' | 'Cancelado') => {
+ const atualizarStatus = async (id: string, novoStatus: 'Aberto' | 'Pago' | 'Cancelado') => {
     try {
       await updateDoc(doc(db, "links_gerados", id), {
         status: novoStatus
       });
+
+      // 💥 A MÁGICA ACONTECE AQUI: Efeito Dopamina quando a venda cai!
+      if (novoStatus === 'Pago') {
+        const duration = 3000;
+        const end = Date.now() + duration;
+
+        const frame = () => {
+          confetti({
+            particleCount: 5,
+            angle: 60,
+            spread: 55,
+            origin: { x: 0 },
+            colors: ['#22c55e', '#fbbf24', '#3b82f6'] // Verde, Dourado e Azul
+          });
+          confetti({
+            particleCount: 5,
+            angle: 120,
+            spread: 55,
+            origin: { x: 1 },
+            colors: ['#22c55e', '#fbbf24', '#3b82f6']
+          });
+
+          if (Date.now() < end) {
+            requestAnimationFrame(frame);
+          }
+        };
+        frame();
+      }
+
     } catch (error) {
       console.error("Erro ao atualizar status:", error);
       alert("Erro ao mover orçamento. Tente novamente.");
