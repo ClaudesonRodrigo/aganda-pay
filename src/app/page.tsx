@@ -8,6 +8,7 @@ import { db, auth } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import confetti from 'canvas-confetti';
+import CountUp from 'react-countup';
 
 interface LinkHistorico {
   id: string;
@@ -112,13 +113,13 @@ export default function Home() {
     }
   };
 
- const atualizarStatus = async (id: string, novoStatus: 'Aberto' | 'Pago' | 'Cancelado') => {
+  const atualizarStatus = async (id: string, novoStatus: 'Aberto' | 'Pago' | 'Cancelado') => {
     try {
       await updateDoc(doc(db, "links_gerados", id), {
         status: novoStatus
       });
 
-      // 💥 A MÁGICA ACONTECE AQUI: Efeito Dopamina quando a venda cai!
+      // Efeito Dopamina (Confetes)
       if (novoStatus === 'Pago') {
         const duration = 3000;
         const end = Date.now() + duration;
@@ -129,7 +130,7 @@ export default function Home() {
             angle: 60,
             spread: 55,
             origin: { x: 0 },
-            colors: ['#22c55e', '#fbbf24', '#3b82f6'] // Verde, Dourado e Azul
+            colors: ['#22c55e', '#fbbf24', '#3b82f6']
           });
           confetti({
             particleCount: 5,
@@ -301,16 +302,36 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-3 w-full sm:w-auto">
-            {/* Bloco A Receber */}
+            {/* Bloco A Receber Animado */}
             <div className="flex-1 sm:flex-none bg-blue-50 dark:bg-blue-900/20 px-3 py-2 rounded-xl border border-blue-200 dark:border-blue-800/30">
               <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">A Receber</p>
-              <p className="text-sm font-black text-blue-700 dark:text-blue-300">{formatarMoeda(valorTotalAReceber)}</p>
+              <p className="text-sm font-black text-blue-700 dark:text-blue-300">
+                <CountUp 
+                  end={valorTotalAReceber} 
+                  duration={1.5} 
+                  separator="." 
+                  decimal="," 
+                  decimals={2} 
+                  prefix="R$ " 
+                  preserveValue={true} 
+                />
+              </p>
             </div>
             
-            {/* Bloco Faturado (Lucro) */}
+            {/* Bloco Faturado Animado (MÁQUINA DE DINHEIRO) */}
             <div className="flex-1 sm:flex-none bg-green-50 dark:bg-green-900/20 px-4 py-2 rounded-xl border border-green-200 dark:border-green-800/30 shadow-sm">
               <p className="text-[10px] font-bold text-green-600 dark:text-green-400 uppercase tracking-wider">Total Faturado</p>
-              <p className="text-lg font-black text-green-700 dark:text-green-300">{formatarMoeda(valorTotalFaturado)}</p>
+              <p className="text-lg font-black text-green-700 dark:text-green-300">
+                <CountUp 
+                  end={valorTotalFaturado} 
+                  duration={2.5} 
+                  separator="." 
+                  decimal="," 
+                  decimals={2} 
+                  prefix="R$ " 
+                  preserveValue={true} 
+                />
+              </p>
             </div>
           </div>
         </div>
