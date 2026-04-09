@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Link as LinkIcon, Copy, CheckCircle2, Plane, DollarSign, Sparkles, Trash2, Clock, ExternalLink, LogOut, Settings, XCircle, Undo2 } from "lucide-react";
-import { collection, addDoc, query, onSnapshot, deleteDoc, doc, where, updateDoc } from "firebase/firestore";
+import { Link as LinkIcon, Copy, CheckCircle2, Plane, DollarSign, Sparkles, Trash2, Clock, ExternalLink, LogOut, Settings, XCircle, Undo2, Image as ImageIcon, ShieldAlert } from "lucide-react";
+import { collection, addDoc, query, onSnapshot, deleteDoc, doc, where, updateDoc, setDoc } from "firebase/firestore";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { db, auth } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
@@ -15,6 +15,7 @@ interface LinkHistorico {
   pacote: string;
   valor: number;
   url: string;
+  imagem?: string;
   criadoEm: string;
   userId: string;
   status: 'Aberto' | 'Pago' | 'Cancelado';
@@ -30,17 +31,39 @@ export default function Home() {
   // Estados do Formulário e Banco
   const [pacote, setPacote] = useState("");
   const [valor, setValor] = useState("");
+  const [imagemUrl, setImagemUrl] = useState("");
   const [linkGerado, setLinkGerado] = useState("");
   const [copiado, setCopiado] = useState<string | null>(null);
   const [historico, setHistorico] = useState<LinkHistorico[]>([]);
   const [carregandoDB, setCarregandoDB] = useState(true);
 
-  // 1. Blindagem de Rota
+  // O SEU UID MESTRE
+  const MEU_UID = "8LMLbOMGgtceH0Fn9Fq6ZdHHEIQ2";
+  const [isGodModeAtivo, setIsGodModeAtivo] = useState<string | null>(null);
+
+  // 1. Blindagem de Rota e Registro de Usuários para o Admin
   useEffect(() => {
-    const unsubscribeAuth = onAuthStateChanged(auth, (usuarioLogado) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (usuarioLogado) => {
       if (usuarioLogado) {
         setUser(usuarioLogado);
         setVerificandoAuth(false);
+        
+        // Verifica se o Admin ativou a personificação no localStorage
+        if (typeof window !== 'undefined') {
+          setIsGodModeAtivo(localStorage.getItem("admin_impersonating_uid"));
+        }
+
+        // MODO DEUS: Salva o usuário silenciosamente para a página Admin conseguir listar
+        try {
+          await setDoc(doc(db, "usuarios", usuarioLogado.uid), {
+            email: usuarioLogado.email,
+            uid: usuarioLogado.uid,
+            ultimoAcesso: new Date().toISOString()
+          }, { merge: true });
+        } catch(e) {
+          console.error("Erro ao registrar acesso:", e);
+        }
+
       } else {
         router.push("/login");
       }
@@ -49,11 +72,14 @@ export default function Home() {
     return () => unsubscribeAuth();
   }, [router]);
 
-  // 2. Escuta o Banco de Dados
+  // 2. Escuta o Banco de Dados (Com Injeção do Modo Deus)
   useEffect(() => {
     if (!user) return;
 
-    const q = query(collection(db, "links_gerados"), where("userId", "==", user.uid));
+    // Se o Admin clicou em "Assumir Painel", lê o ID do cliente. Se não, lê o ID normal.
+    const targetUid = isGodModeAtivo || user.uid;
+
+    const q = query(collection(db, "links_gerados"), where("userId", "==", targetUid));
     
     const unsubscribeDB = onSnapshot(q, (querySnapshot) => {
       const linksMapeados: LinkHistorico[] = [];
@@ -73,10 +99,21 @@ export default function Home() {
     });
 
     return () => unsubscribeDB();
-  }, [user]);
+  }, [user, isGodModeAtivo]);
 
   const fazerLogout = async () => {
+    // Se estiver no modo deus, limpa o modo deus ao sair
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem("admin_impersonating_uid");
+    }
     await signOut(auth);
+  };
+
+  const sairModoDeus = () => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem("admin_impersonating_uid");
+      window.location.reload();
+    }
   };
 
   const gerarLink = async (e: React.FormEvent) => {
@@ -89,24 +126,28 @@ export default function Home() {
     const valorFormatado = Number(valorNumerico) / 100;
 
     try {
+      const targetUid = isGodModeAtivo || user.uid;
+
       // 1. Salva no banco PRIMEIRO para o Firebase gerar o ID seguro
       const docRef = await addDoc(collection(db, "links_gerados"), {
         pacote: pacote,
         valor: valorFormatado,
+        imagem: imagemUrl,
         criadoEm: new Date().toISOString(),
-        userId: user.uid,
+        userId: targetUid, // Salva na conta da agência certa (mesmo se for o Admin operando)
         status: 'Aberto' 
       });
       
       // 2. Monta a URL usando APENAS o ID do documento
       const urlFinal = `${window.location.origin}/checkout/${docRef.id}`;
       
-      // 3. Atualiza o documento recém-criado com a sua própria URL (para o botão Copiar funcionar no Painel)
+      // 3. Atualiza o documento recém-criado com a sua própria URL
       await updateDoc(docRef, { url: urlFinal });
       
       setLinkGerado(urlFinal);
       setPacote("");
       setValor("");
+      setImagemUrl("");
     } catch (error) {
       console.error("Erro ao salvar no banco:", error);
       alert("Erro ao salvar. Verifique suas permissões no banco de dados.");
@@ -203,240 +244,278 @@ export default function Home() {
   }
 
   return (
-    <div className="w-full max-w-[1400px] mx-auto my-8 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start px-4">
-      
-      {/* COLUNA ESQUERDA: GERADOR */}
-      <div className="lg:col-span-4 relative">
-        <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-[24px] blur opacity-20 dark:opacity-40 animate-pulse duration-3000"></div>
+    <>
+      {/* ALERTA DE MODO DEUS - Só aparece se o Admin assumiu o painel de alguém */}
+      {isGodModeAtivo && user?.uid === MEU_UID && (
+        <div className="w-full bg-red-600 text-white font-bold py-3 px-4 flex flex-col sm:flex-row items-center justify-center gap-4 z-50 sticky top-0 shadow-lg">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="w-6 h-6 animate-pulse" />
+            <span>MODO DEUS ATIVADO: Você está gerindo o painel da Agência {isGodModeAtivo.substring(0, 8)}...</span>
+          </div>
+          <button 
+            onClick={sairModoDeus} 
+            className="bg-white text-red-600 px-4 py-1.5 rounded-lg text-sm uppercase tracking-wider hover:bg-red-50 transition-colors"
+          >
+            Sair e Voltar para Admin
+          </button>
+        </div>
+      )}
+
+      <div className="w-full max-w-[1400px] mx-auto my-8 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start px-4">
         
-        <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-6 border border-slate-100 dark:border-slate-800">
+        {/* COLUNA ESQUERDA: GERADOR */}
+        <div className="lg:col-span-4 relative">
+          <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-[24px] blur opacity-20 dark:opacity-40 animate-pulse duration-3000"></div>
           
-          <div className="absolute top-4 right-4 flex items-center gap-1">
-            <Link 
-              href="/configuracoes"
-              className="p-2 text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors flex items-center justify-center"
-              title="Configurações"
-            >
-              <Settings className="w-5 h-5" />
-            </Link>
-            <button 
-              onClick={fazerLogout}
-              className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors flex items-center justify-center"
-              title="Sair"
-            >
-              <LogOut className="w-5 h-5" />
-            </button>
-          </div>
-
-          <div className="mb-8 text-center mt-4">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-blue-50 dark:bg-blue-900/30 mb-4">
-              <Sparkles className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-            </div>
-            <h1 className="text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">Agência Pay</h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 font-medium">Nova Simulação</p>
-          </div>
-
-          <form onSubmit={gerarLink} className="space-y-5">
-            <div className="space-y-1.5">
-              <label htmlFor="pacote" className="block text-sm font-semibold text-slate-700 dark:text-slate-300">
-                Destino ou Pacote
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <Plane className="h-5 w-5 text-slate-400" />
-                </div>
-                <input
-                  id="pacote"
-                  type="text"
-                  placeholder="Ex: Pacote Maceió"
-                  value={pacote}
-                  onChange={(e) => setPacote(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-600 outline-none transition-all font-medium placeholder:text-slate-400"
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <label htmlFor="valor" className="block text-sm font-semibold text-slate-700 dark:text-slate-300">
-                Valor Base (R$)
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <DollarSign className="h-5 w-5 text-slate-400" />
-                </div>
-                <input
-                  id="valor"
-                  type="text"
-                  placeholder="R$ 0,00"
-                  value={valor}
-                  onChange={(e) => formatarMoeda(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-600 outline-none transition-all font-medium placeholder:text-slate-400"
-                  required
-                />
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              className="w-full mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5 shadow-lg shadow-blue-500/30"
-            >
-              <LinkIcon className="w-5 h-5" />
-              Gerar Orçamento
-            </button>
-          </form>
-        </div>
-      </div>
-
-      {/* COLUNA DIREITA: CRM KANBAN */}
-      <div className="lg:col-span-8 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-800 p-6 flex flex-col h-full min-h-[600px] overflow-hidden">
-        
-        {/* CABEÇALHO DO CRM COM DASHBOARD FINANCEIRO */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 pb-4 border-b border-slate-100 dark:border-slate-800 gap-4">
-          <div>
-            <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <Clock className="w-5 h-5 text-blue-500" />
-              CRM de Vendas
-            </h2>
-            <p className="text-xs text-slate-500 mt-1">Gerencie o status e o faturamento da agência</p>
-          </div>
-
-          <div className="flex items-center gap-3 w-full sm:w-auto">
-            {/* Bloco A Receber Animado */}
-            <div className="flex-1 sm:flex-none bg-blue-50 dark:bg-blue-900/20 px-3 py-2 rounded-xl border border-blue-200 dark:border-blue-800/30">
-              <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">A Receber</p>
-              <p className="text-sm font-black text-blue-700 dark:text-blue-300">
-                <CountUp 
-                  end={valorTotalAReceber} 
-                  duration={1.5} 
-                  separator="." 
-                  decimal="," 
-                  decimals={2} 
-                  prefix="R$ " 
-                  preserveValue={true} 
-                />
-              </p>
-            </div>
+          <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-6 border border-slate-100 dark:border-slate-800">
             
-            {/* Bloco Faturado Animado (MÁQUINA DE DINHEIRO) */}
-            <div className="flex-1 sm:flex-none bg-green-50 dark:bg-green-900/20 px-4 py-2 rounded-xl border border-green-200 dark:border-green-800/30 shadow-sm">
-              <p className="text-[10px] font-bold text-green-600 dark:text-green-400 uppercase tracking-wider">Total Faturado</p>
-              <p className="text-lg font-black text-green-700 dark:text-green-300">
-                <CountUp 
-                  end={valorTotalFaturado} 
-                  duration={2.5} 
-                  separator="." 
-                  decimal="," 
-                  decimals={2} 
-                  prefix="R$ " 
-                  preserveValue={true} 
-                />
-              </p>
+            <div className="absolute top-4 right-4 flex items-center gap-1">
+              <Link 
+                href="/configuracoes"
+                className="p-2 text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors flex items-center justify-center"
+                title="Configurações"
+              >
+                <Settings className="w-5 h-5" />
+              </Link>
+              <button 
+                onClick={fazerLogout}
+                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors flex items-center justify-center"
+                title="Sair"
+              >
+                <LogOut className="w-5 h-5" />
+              </button>
             </div>
+
+            <div className="mb-8 text-center mt-4">
+              <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-blue-50 dark:bg-blue-900/30 mb-4">
+                <Sparkles className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+              </div>
+              <h1 className="text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">Agência Pay</h1>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 font-medium">Nova Simulação</p>
+            </div>
+
+            <form onSubmit={gerarLink} className="space-y-5">
+              <div className="space-y-1.5">
+                <label htmlFor="pacote" className="block text-sm font-semibold text-slate-700 dark:text-slate-300">
+                  Destino ou Pacote
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <Plane className="h-5 w-5 text-slate-400" />
+                  </div>
+                  <input
+                    id="pacote"
+                    type="text"
+                    placeholder="Ex: Pacote Maceió"
+                    value={pacote}
+                    onChange={(e) => setPacote(e.target.value)}
+                    className="w-full pl-11 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-600 outline-none transition-all font-medium placeholder:text-slate-400"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label htmlFor="valor" className="block text-sm font-semibold text-slate-700 dark:text-slate-300">
+                  Valor Base (R$)
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <DollarSign className="h-5 w-5 text-slate-400" />
+                  </div>
+                  <input
+                    id="valor"
+                    type="text"
+                    placeholder="R$ 0,00"
+                    value={valor}
+                    onChange={(e) => formatarMoeda(e.target.value)}
+                    className="w-full pl-11 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-600 outline-none transition-all font-medium placeholder:text-slate-400"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* CAMPO DE IMAGEM INJETADO AQUI */}
+              <div className="space-y-1.5">
+                <label htmlFor="imagem" className="block text-sm font-semibold text-slate-700 dark:text-slate-300">
+                  Link da Foto do Destino <span className="text-xs font-normal text-slate-400">(Opcional)</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <ImageIcon className="h-5 w-5 text-slate-400" />
+                  </div>
+                  <input
+                    id="imagem"
+                    type="url"
+                    placeholder="Ex: https://link-da-imagem.jpg"
+                    value={imagemUrl}
+                    onChange={(e) => setImagemUrl(e.target.value)}
+                    className="w-full pl-11 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-600 outline-none transition-all font-medium placeholder:text-slate-400"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5 shadow-lg shadow-blue-500/30"
+              >
+                <LinkIcon className="w-5 h-5" />
+                Gerar Orçamento
+              </button>
+            </form>
           </div>
         </div>
 
-        {carregandoDB ? (
-          <div className="flex flex-col items-center justify-center h-full text-slate-400">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>
-            <p>Carregando pipeline...</p>
-          </div>
-        ) : (
-          <div className="flex-1 overflow-x-auto pb-4 custom-scrollbar">
-            <div className="flex gap-4 min-w-[850px] h-full">
+        {/* COLUNA DIREITA: CRM KANBAN */}
+        <div className="lg:col-span-8 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-800 p-6 flex flex-col h-full min-h-[600px] overflow-hidden">
+          
+          {/* CABEÇALHO DO CRM COM DASHBOARD FINANCEIRO */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 pb-4 border-b border-slate-100 dark:border-slate-800 gap-4">
+            <div>
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Clock className="w-5 h-5 text-blue-500" />
+                CRM de Vendas
+              </h2>
+              <p className="text-xs text-slate-500 mt-1">Gerencie o status e o faturamento da agência</p>
+            </div>
+
+            <div className="flex items-center gap-3 w-full sm:w-auto">
+              {/* Bloco A Receber Animado */}
+              <div className="flex-1 sm:flex-none bg-blue-50 dark:bg-blue-900/20 px-3 py-2 rounded-xl border border-blue-200 dark:border-blue-800/30">
+                <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">A Receber</p>
+                <p className="text-sm font-black text-blue-700 dark:text-blue-300">
+                  <CountUp 
+                    end={valorTotalAReceber} 
+                    duration={1.5} 
+                    separator="." 
+                    decimal="," 
+                    decimals={2} 
+                    prefix="R$ " 
+                    preserveValue={true} 
+                  />
+                </p>
+              </div>
               
-              {/* COLUNA 1: EM ABERTO */}
-              <div className="flex-1 flex flex-col bg-slate-50 dark:bg-slate-800/30 rounded-2xl p-4 border border-slate-200 dark:border-slate-700">
-                <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-4 flex justify-between items-center">
-                  <span>Aguardando Pagamento</span>
-                  <span className="bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-400 px-2 py-0.5 rounded text-xs">{linksAbertos.length}</span>
-                </h3>
-                <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-1">
-                  {linksAbertos.map(item => (
-                    <div key={item.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm relative group">
-                      <div className="flex justify-between items-start mb-1">
-                        <h4 className="font-bold text-slate-900 dark:text-white text-sm line-clamp-2 pr-2">{item.pacote}</h4>
-                        <span className="font-black text-blue-600 dark:text-blue-400 text-sm">{formatarMoeda(item.valor)}</span>
-                      </div>
-                      <p className="text-[10px] text-slate-500 mb-3">{formatarData(item.criadoEm)}</p>
-                      
-                      <div className="flex gap-2 mb-3">
-                        <button onClick={() => copiarParaAreaDeTransferencia(item.url, item.id)} className="flex-1 flex items-center justify-center gap-1 p-1.5 bg-slate-100 dark:bg-slate-700 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 text-xs font-semibold transition-colors">
-                          {copiado === item.id ? <CheckCircle2 size={14} className="text-green-500"/> : <Copy size={14} />} Copiar
-                        </button>
-                        <a href={item.url} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-slate-100 dark:bg-slate-700 rounded-lg text-slate-600 dark:text-slate-300 hover:text-blue-500 transition-colors">
-                          <ExternalLink size={14} />
-                        </a>
-                      </div>
-
-                      <div className="flex gap-2 pt-2 border-t border-slate-100 dark:border-slate-700/50">
-                        <button onClick={() => atualizarStatus(item.id, 'Pago')} className="flex-1 bg-green-50 hover:bg-green-100 dark:bg-green-900/20 dark:hover:bg-green-900/40 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400 text-xs font-bold py-1.5 rounded-lg flex items-center justify-center gap-1 transition-colors">
-                          <CheckCircle2 size={14}/> Pago
-                        </button>
-                        <button onClick={() => atualizarStatus(item.id, 'Cancelado')} className="p-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 rounded-lg flex items-center justify-center transition-colors" title="Marcar como Perdido">
-                          <XCircle size={14}/>
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+              {/* Bloco Faturado Animado (MÁQUINA DE DINHEIRO) */}
+              <div className="flex-1 sm:flex-none bg-green-50 dark:bg-green-900/20 px-4 py-2 rounded-xl border border-green-200 dark:border-green-800/30 shadow-sm">
+                <p className="text-[10px] font-bold text-green-600 dark:text-green-400 uppercase tracking-wider">Total Faturado</p>
+                <p className="text-lg font-black text-green-700 dark:text-green-300">
+                  <CountUp 
+                    end={valorTotalFaturado} 
+                    duration={2.5} 
+                    separator="." 
+                    decimal="," 
+                    decimals={2} 
+                    prefix="R$ " 
+                    preserveValue={true} 
+                  />
+                </p>
               </div>
-
-              {/* COLUNA 2: PAGOS */}
-              <div className="flex-1 flex flex-col bg-green-50/50 dark:bg-green-900/10 rounded-2xl p-4 border border-green-100 dark:border-green-900/30">
-                <h3 className="text-sm font-bold text-green-700 dark:text-green-400 mb-4 flex justify-between items-center">
-                  <span>Vendas Fechadas</span>
-                  <span className="bg-green-200 text-green-800 dark:bg-green-900 dark:text-green-300 px-2 py-0.5 rounded text-xs">{linksPagos.length}</span>
-                </h3>
-                <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-1">
-                  {linksPagos.map(item => (
-                    <div key={item.id} className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-green-200 dark:border-green-800/50 shadow-sm opacity-90 hover:opacity-100 transition-opacity">
-                      <div className="flex justify-between items-start mb-1">
-                        <h4 className="font-bold text-slate-700 dark:text-slate-300 text-sm line-clamp-1 strike-through">{item.pacote}</h4>
-                        <span className="font-black text-green-600 dark:text-green-400 text-sm">{formatarMoeda(item.valor)}</span>
-                      </div>
-                      <div className="flex justify-between items-center mt-3 pt-2 border-t border-slate-100 dark:border-slate-700/50">
-                        <button onClick={() => atualizarStatus(item.id, 'Aberto')} className="text-slate-400 hover:text-blue-500 text-xs flex items-center gap-1 transition-colors">
-                          <Undo2 size={12}/> Reabrir
-                        </button>
-                        <button onClick={() => deletarLink(item.id)} className="text-slate-400 hover:text-red-500 transition-colors">
-                          <Trash2 size={14}/>
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* COLUNA 3: CANCELADOS */}
-              <div className="flex-1 flex flex-col bg-slate-100 dark:bg-slate-800/50 rounded-2xl p-4 border border-slate-200 dark:border-slate-700 opacity-80">
-                <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 mb-4 flex justify-between items-center">
-                  <span>Perdidos / Cancelados</span>
-                  <span className="bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300 px-2 py-0.5 rounded text-xs">{linksCancelados.length}</span>
-                </h3>
-                <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-1">
-                  {linksCancelados.map(item => (
-                    <div key={item.id} className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
-                      <div className="flex justify-between items-start mb-1">
-                        <h4 className="font-semibold text-slate-500 dark:text-slate-500 text-sm line-clamp-1">{item.pacote}</h4>
-                      </div>
-                      <div className="flex justify-between items-center mt-3 pt-2 border-t border-slate-100 dark:border-slate-800">
-                        <button onClick={() => atualizarStatus(item.id, 'Aberto')} className="text-slate-400 hover:text-blue-500 text-xs flex items-center gap-1 transition-colors">
-                          <Undo2 size={12}/> Recuperar
-                        </button>
-                        <button onClick={() => deletarLink(item.id)} className="text-slate-400 hover:text-red-500 transition-colors">
-                          <Trash2 size={14}/>
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
             </div>
           </div>
-        )}
+
+          {carregandoDB ? (
+            <div className="flex flex-col items-center justify-center h-full text-slate-400">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>
+              <p>Carregando pipeline...</p>
+            </div>
+          ) : (
+            <div className="flex-1 overflow-x-auto pb-4 custom-scrollbar">
+              <div className="flex gap-4 min-w-[850px] h-full">
+                
+                {/* COLUNA 1: EM ABERTO */}
+                <div className="flex-1 flex flex-col bg-slate-50 dark:bg-slate-800/30 rounded-2xl p-4 border border-slate-200 dark:border-slate-700">
+                  <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-4 flex justify-between items-center">
+                    <span>Aguardando Pagamento</span>
+                    <span className="bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-400 px-2 py-0.5 rounded text-xs">{linksAbertos.length}</span>
+                  </h3>
+                  <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-1">
+                    {linksAbertos.map(item => (
+                      <div key={item.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm relative group">
+                        <div className="flex justify-between items-start mb-1">
+                          <h4 className="font-bold text-slate-900 dark:text-white text-sm line-clamp-2 pr-2">{item.pacote}</h4>
+                          <span className="font-black text-blue-600 dark:text-blue-400 text-sm">{formatarMoeda(item.valor)}</span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 mb-3">{formatarData(item.criadoEm)}</p>
+                        
+                        <div className="flex gap-2 mb-3">
+                          <button onClick={() => copiarParaAreaDeTransferencia(item.url, item.id)} className="flex-1 flex items-center justify-center gap-1 p-1.5 bg-slate-100 dark:bg-slate-700 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 text-xs font-semibold transition-colors">
+                            {copiado === item.id ? <CheckCircle2 size={14} className="text-green-500"/> : <Copy size={14} />} Copiar
+                          </button>
+                          <a href={item.url} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-slate-100 dark:bg-slate-700 rounded-lg text-slate-600 dark:text-slate-300 hover:text-blue-500 transition-colors">
+                            <ExternalLink size={14} />
+                          </a>
+                        </div>
+
+                        <div className="flex gap-2 pt-2 border-t border-slate-100 dark:border-slate-700/50">
+                          <button onClick={() => atualizarStatus(item.id, 'Pago')} className="flex-1 bg-green-50 hover:bg-green-100 dark:bg-green-900/20 dark:hover:bg-green-900/40 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400 text-xs font-bold py-1.5 rounded-lg flex items-center justify-center gap-1 transition-colors">
+                            <CheckCircle2 size={14}/> Pago
+                          </button>
+                          <button onClick={() => atualizarStatus(item.id, 'Cancelado')} className="p-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 rounded-lg flex items-center justify-center transition-colors" title="Marcar como Perdido">
+                            <XCircle size={14}/>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* COLUNA 2: PAGOS */}
+                <div className="flex-1 flex flex-col bg-green-50/50 dark:bg-green-900/10 rounded-2xl p-4 border border-green-100 dark:border-green-900/30">
+                  <h3 className="text-sm font-bold text-green-700 dark:text-green-400 mb-4 flex justify-between items-center">
+                    <span>Vendas Fechadas</span>
+                    <span className="bg-green-200 text-green-800 dark:bg-green-900 dark:text-green-300 px-2 py-0.5 rounded text-xs">{linksPagos.length}</span>
+                  </h3>
+                  <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-1">
+                    {linksPagos.map(item => (
+                      <div key={item.id} className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-green-200 dark:border-green-800/50 shadow-sm opacity-90 hover:opacity-100 transition-opacity">
+                        <div className="flex justify-between items-start mb-1">
+                          <h4 className="font-bold text-slate-700 dark:text-slate-300 text-sm line-clamp-1 strike-through">{item.pacote}</h4>
+                          <span className="font-black text-green-600 dark:text-green-400 text-sm">{formatarMoeda(item.valor)}</span>
+                        </div>
+                        <div className="flex justify-between items-center mt-3 pt-2 border-t border-slate-100 dark:border-slate-700/50">
+                          <button onClick={() => atualizarStatus(item.id, 'Aberto')} className="text-slate-400 hover:text-blue-500 text-xs flex items-center gap-1 transition-colors">
+                            <Undo2 size={12}/> Reabrir
+                          </button>
+                          <button onClick={() => deletarLink(item.id)} className="text-slate-400 hover:text-red-500 transition-colors">
+                            <Trash2 size={14}/>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* COLUNA 3: CANCELADOS */}
+                <div className="flex-1 flex flex-col bg-slate-100 dark:bg-slate-800/50 rounded-2xl p-4 border border-slate-200 dark:border-slate-700 opacity-80">
+                  <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 mb-4 flex justify-between items-center">
+                    <span>Perdidos / Cancelados</span>
+                    <span className="bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300 px-2 py-0.5 rounded text-xs">{linksCancelados.length}</span>
+                  </h3>
+                  <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-1">
+                    {linksCancelados.map(item => (
+                      <div key={item.id} className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+                        <div className="flex justify-between items-start mb-1">
+                          <h4 className="font-semibold text-slate-500 dark:text-slate-500 text-sm line-clamp-1">{item.pacote}</h4>
+                        </div>
+                        <div className="flex justify-between items-center mt-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+                          <button onClick={() => atualizarStatus(item.id, 'Aberto')} className="text-slate-400 hover:text-blue-500 text-xs flex items-center gap-1 transition-colors">
+                            <Undo2 size={12}/> Recuperar
+                          </button>
+                          <button onClick={() => deletarLink(item.id)} className="text-slate-400 hover:text-red-500 transition-colors">
+                            <Trash2 size={14}/>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
