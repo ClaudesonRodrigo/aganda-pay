@@ -12,7 +12,6 @@ type OpcaoSelecionada = {
   valorTotal: number;
 };
 
-// Atualização: Tipagem agora inclui os novos campos de contato
 type ConfiguracoesAtuais = {
   whatsapp: string;
   instagram?: string;
@@ -23,72 +22,69 @@ type ConfiguracoesAtuais = {
   }
 };
 
+type DataPayload = {
+  p: string;
+  v: number;
+  img?: string | null;
+  userId: string; // 🟢 NOVO: Precisamos saber quem é o dono do link
+};
+
 export default function CheckoutPage() {
   const params = useParams();
   const hashParam = params?.hash as string;
 
-  const [data, setData] = useState<{ p: string; v: number } | null>(null);
+  const [data, setData] = useState<DataPayload | null>(null);
   const [error, setError] = useState(false);
   const [selecionado, setSelecionado] = useState<OpcaoSelecionada | null>(null);
-  
   const [configuracoes, setConfiguracoes] = useState<ConfiguracoesAtuais | null>(null);
 
-  // 1. Busca os dados reais do banco usando o ID (Hash) da URL
+  // 1. Busca os dados do Link E LOGO DE SEGUIDA busca as configurações do DONO do link
   useEffect(() => {
-    const fetchLinkData = async () => {
+    const fetchLinkEConfiguracoes = async () => {
       if (!hashParam) return;
       try {
+        // Passo A: Pega o Link
         const docRef = doc(db, "links_gerados", hashParam);
         const docSnap = await getDoc(docRef);
         
         if (docSnap.exists()) {
           const dados = docSnap.data();
-          setData({ p: dados.pacote, v: dados.valor });
+          const donoDoLink = dados.userId;
+          setData({ p: dados.pacote, v: dados.valor, img: dados.imagem || null, userId: donoDoLink });
+
+          // Passo B: Vai no cofre de configurações ESPECÍFICO do dono do link
+          const configRef = doc(db, "configuracoes", donoDoLink);
+          const configSnap = await getDoc(configRef);
+
+          if (configSnap.exists()) {
+            setConfiguracoes(configSnap.data() as ConfiguracoesAtuais);
+          } else {
+            // Se o dono nunca salvou configurações, usa a taxa padrão da InfinitePay
+            setConfiguracoes({
+              whatsapp: "5579999999999",
+              instagram: "",
+              site: "",
+              taxas: {
+                debito: 1.37,
+                credito: { 1: 3.15, 2: 5.39, 3: 6.12, 4: 6.85, 5: 7.57, 6: 8.28, 7: 8.99, 8: 9.69, 9: 10.38, 10: 11.06, 11: 11.74, 12: 12.40 }
+              }
+            });
+          }
         } else {
-          // Se o ID não existir no banco, ou se você apagou no Kanban, o link morre.
-          setError(true);
+          setError(true); // Link não existe
         }
       } catch (e) {
-        console.error("Erro ao buscar dados do link:", e);
+        console.error("Erro ao buscar dados completos:", e);
         setError(true);
       }
     };
 
-    fetchLinkData();
+    fetchLinkEConfiguracoes();
   }, [hashParam]);
-
-  // 2. Busca as taxas e contatos no Firebase
-  useEffect(() => {
-    const fetchConfiguracoes = async () => {
-      try {
-        const docRef = doc(db, "configuracoes", "geral");
-        const docSnap = await getDoc(docRef);
-        
-        if (docSnap.exists()) {
-          setConfiguracoes(docSnap.data() as ConfiguracoesAtuais);
-        } else {
-          setConfiguracoes({
-            whatsapp: "5579999999999",
-            instagram: "",
-            site: "",
-            taxas: {
-              debito: 1.37,
-              credito: { 1: 3.15, 2: 5.39, 3: 6.12, 4: 6.85, 5: 7.57, 6: 8.28, 7: 8.99, 8: 9.69, 9: 10.38, 10: 11.06, 11: 11.74, 12: 12.40 }
-            }
-          });
-        }
-      } catch (e) {
-        console.error("Erro ao buscar configurações no banco", e);
-        setError(true);
-      }
-    };
-
-    fetchConfiguracoes();
-  }, []);
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center p-8 text-center bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-700 max-w-md w-full">
+      <div className="flex flex-col items-center justify-center p-8 text-center bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-700 max-w-md w-full mx-auto mt-10">
         <AlertCircle className="w-16 h-16 text-red-500 mb-4" />
         <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Link Inválido ou Expirado</h2>
         <p className="text-sm text-slate-500 dark:text-slate-400">
@@ -100,10 +96,10 @@ export default function CheckoutPage() {
 
   if (!data || !configuracoes) {
     return (
-      <div className="w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl shadow-xl p-6 border border-slate-100 dark:border-slate-700 flex justify-center items-center min-h-[300px]">
+      <div className="w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl shadow-xl p-6 border border-slate-100 dark:border-slate-700 flex justify-center items-center min-h-[300px] mx-auto mt-10">
         <div className="flex flex-col items-center gap-4">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <p className="text-sm font-medium text-slate-500">Conectando ao banco de dados...</p>
+          <p className="text-sm font-medium text-slate-500">Montando sua simulação...</p>
         </div>
       </div>
     );
@@ -124,7 +120,6 @@ export default function CheckoutPage() {
     window.open(urlWa, "_blank");
   };
 
-  // Funções de formatação de links (UX de Elite)
   const formatarUrlInstagram = (valor: string) => {
     if (!valor) return "#";
     if (valor.includes("instagram.com")) return valor.startsWith("http") ? valor : `https://${valor}`;
@@ -137,13 +132,19 @@ export default function CheckoutPage() {
   };
 
   return (
-    <div className="w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl shadow-xl overflow-hidden border border-slate-100 dark:border-slate-700 pb-4">
-      {/* Cabeçalho do Recibo */}
-      <div className="bg-blue-600 p-6 text-center text-white relative">
-        <p className="text-blue-100 text-sm font-medium uppercase tracking-wider mb-1">Simulação de Pagamento</p>
-        <h1 className="text-2xl font-bold line-clamp-2">{data.p}</h1>
-        <p className="text-3xl font-black mt-4">{formatarMoeda(data.v)}</p>
-        <p className="text-blue-200 text-xs mt-1">Valor base à vista</p>
+    <div className="w-full max-w-md mx-auto mt-10 bg-white dark:bg-slate-800 rounded-2xl shadow-xl overflow-hidden border border-slate-100 dark:border-slate-700 pb-4">
+      
+      {/* CABEÇALHO DINÂMICO DA IMAGEM COM OVERLAY */}
+      <div 
+        className={`p-6 text-center text-white relative flex flex-col items-center justify-center min-h-[160px] transition-all ${!data.img ? 'bg-blue-600' : 'bg-cover bg-center'}`}
+        style={data.img ? { backgroundImage: `linear-gradient(rgba(0,0,0,0.5), rgba(0,0,0,0.7)), url(${data.img})` } : {}}
+      >
+        <div className="relative z-10 w-full">
+          <p className="text-blue-100/90 text-sm font-medium uppercase tracking-wider mb-1">Simulação de Pagamento</p>
+          <h1 className="text-2xl font-bold line-clamp-2 drop-shadow-md">{data.p}</h1>
+          <p className="text-3xl font-black mt-4 drop-shadow-md">{formatarMoeda(data.v)}</p>
+          <p className="text-blue-200/90 text-xs mt-1">Valor base à vista</p>
+        </div>
       </div>
 
       <div className="p-6">
@@ -151,7 +152,6 @@ export default function CheckoutPage() {
           Selecione a forma de pagamento
         </p>
 
-        {/* Tabela de Valores Selecionáveis */}
         <div className="space-y-3 mb-6 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
           
           <button
@@ -227,7 +227,6 @@ export default function CheckoutPage() {
           </div>
         </div>
 
-        {/* Botão de Fechar Pedido via WhatsApp */}
         <button
           onClick={abrirWhatsApp}
           disabled={!selecionado}
@@ -241,34 +240,20 @@ export default function CheckoutPage() {
           {selecionado ? 'Fechar Pacote no WhatsApp' : 'Selecione uma opção'}
         </button>
 
-        {/* Links Sociais (Só aparecem se o dono tiver preenchido lá nas Configurações) */}
         {(configuracoes.instagram || configuracoes.site) && (
           <div className="mt-6 pt-5 border-t border-slate-100 dark:border-slate-700 flex items-center justify-center gap-6">
             {configuracoes.instagram && (
-              <a 
-                href={formatarUrlInstagram(configuracoes.instagram)} 
-                target="_blank" 
-                rel="noopener noreferrer" 
-                className="flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-pink-600 dark:hover:text-pink-400 transition-colors"
-              >
-                <Instagram className="w-4 h-4" />
-                Instagram
+              <a href={formatarUrlInstagram(configuracoes.instagram)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-pink-600 dark:hover:text-pink-400 transition-colors">
+                <Instagram className="w-4 h-4" /> Instagram
               </a>
             )}
             {configuracoes.site && (
-              <a 
-                href={formatarUrlSite(configuracoes.site)} 
-                target="_blank" 
-                rel="noopener noreferrer" 
-                className="flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-              >
-                <Globe className="w-4 h-4" />
-                Site Oficial
+              <a href={formatarUrlSite(configuracoes.site)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+                <Globe className="w-4 h-4" /> Site Oficial
               </a>
             )}
           </div>
         )}
-
       </div>
     </div>
   );
