@@ -26,7 +26,7 @@ type DataPayload = {
   p: string;
   v: number;
   img?: string | null;
-  userId: string; // 🟢 NOVO: Precisamos saber quem é o dono do link
+  userId: string;
 };
 
 export default function CheckoutPage() {
@@ -38,10 +38,11 @@ export default function CheckoutPage() {
   const [selecionado, setSelecionado] = useState<OpcaoSelecionada | null>(null);
   const [configuracoes, setConfiguracoes] = useState<ConfiguracoesAtuais | null>(null);
 
-  // 1. Busca os dados do Link E LOGO DE SEGUIDA busca as configurações do DONO do link
+  // 1. Busca os dados do Link E LOGO DE SEGUIDA busca as configurações
   useEffect(() => {
     const fetchLinkEConfiguracoes = async () => {
       if (!hashParam) return;
+      
       try {
         // Passo A: Pega o Link
         const docRef = doc(db, "links_gerados", hashParam);
@@ -53,13 +54,19 @@ export default function CheckoutPage() {
           setData({ p: dados.pacote, v: dados.valor, img: dados.imagem || null, userId: donoDoLink });
 
           // Passo B: Vai no cofre de configurações ESPECÍFICO do dono do link
-          const configRef = doc(db, "configuracoes", donoDoLink);
-          const configSnap = await getDoc(configRef);
+          let configRef = doc(db, "configuracoes", donoDoLink);
+          let configSnap = await getDoc(configRef);
+
+          // 🟢 CORREÇÃO DE MIGRAÇÃO: Se o cofre específico não existir, busca o antigo "geral"
+          if (!configSnap.exists()) {
+            configRef = doc(db, "configuracoes", "geral");
+            configSnap = await getDoc(configRef);
+          }
 
           if (configSnap.exists()) {
             setConfiguracoes(configSnap.data() as ConfiguracoesAtuais);
           } else {
-            // Se o dono nunca salvou configurações, usa a taxa padrão da InfinitePay
+            // Se realmente nenhum dos dois existir, usa a taxa de segurança
             setConfiguracoes({
               whatsapp: "5579999999999",
               instagram: "",
@@ -105,29 +112,24 @@ export default function CheckoutPage() {
     );
   }
 
-  const calcularValor = (taxa: number) => {
-    return data.v * (1 + (taxa / 100));
-  };
-
-  const formatarMoeda = (valor: number) => {
-    return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-  };
+  // 🟢 REATORAÇÃO DE PERFORMANCE: Funções de cálculo limpas
+  const calcularValor = (taxa: number) => data.v * (1 + (taxa / 100));
+  
+  const formatarMoeda = (valor: number) => valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
   const abrirWhatsApp = () => {
     if (!selecionado) return;
     const texto = `Olá! Gostaria de fechar o pacote *${data.p}*.\n\nForma de pagamento escolhida:\n✅ *${selecionado.resumo}*\nTotal: *${formatarMoeda(selecionado.valorTotal)}*\n(Simulado via InfinitePay)\n\nComo procedemos com o pagamento?`;
-    const urlWa = `https://wa.me/${configuracoes.whatsapp}?text=${encodeURIComponent(texto)}`;
+    const urlWa = `https://wa.me/${configuracoes.whatsapp.replace(/\D/g, "")}?text=${encodeURIComponent(texto)}`;
     window.open(urlWa, "_blank");
   };
 
-  const formatarUrlInstagram = (valor: string) => {
+  const formatarUrlExterna = (valor: string, tipo: 'instagram' | 'site') => {
     if (!valor) return "#";
-    if (valor.includes("instagram.com")) return valor.startsWith("http") ? valor : `https://${valor}`;
-    return `https://instagram.com/${valor.replace("@", "")}`;
-  };
-
-  const formatarUrlSite = (valor: string) => {
-    if (!valor) return "#";
+    if (tipo === 'instagram') {
+      if (valor.includes("instagram.com")) return valor.startsWith("http") ? valor : `https://${valor}`;
+      return `https://instagram.com/${valor.replace("@", "")}`;
+    }
     return valor.startsWith("http") ? valor : `https://${valor}`;
   };
 
@@ -243,12 +245,12 @@ export default function CheckoutPage() {
         {(configuracoes.instagram || configuracoes.site) && (
           <div className="mt-6 pt-5 border-t border-slate-100 dark:border-slate-700 flex items-center justify-center gap-6">
             {configuracoes.instagram && (
-              <a href={formatarUrlInstagram(configuracoes.instagram)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-pink-600 dark:hover:text-pink-400 transition-colors">
+              <a href={formatarUrlExterna(configuracoes.instagram, 'instagram')} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-pink-600 dark:hover:text-pink-400 transition-colors">
                 <Instagram className="w-4 h-4" /> Instagram
               </a>
             )}
             {configuracoes.site && (
-              <a href={formatarUrlSite(configuracoes.site)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+              <a href={formatarUrlExterna(configuracoes.site, 'site')} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
                 <Globe className="w-4 h-4" /> Site Oficial
               </a>
             )}

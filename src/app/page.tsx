@@ -160,19 +160,28 @@ export default function Home() {
         status: novoStatus
       });
 
-      // Efeito Dopamina (Confetes)
+      // 💥 Efeito Dopamina (Confetes) - Refatorado para o React Compiler (Função Pura)
       if (novoStatus === 'Pago') {
-        const duration = 3000;
-        const end = Date.now() + duration;
+        const tempoDuracao = 3000;
+        let tempoInicio: number | null = null;
 
-        const frame = () => {
+        const dispararFrame = (timestamp: number) => {
+          // Marca o exato milissegundo em que a animação começou
+          if (!tempoInicio) tempoInicio = timestamp;
+          
+          const tempoDecorrido = timestamp - tempoInicio;
+
+          // Trava de segurança: Se o tempo já passou, aborta a animação
+          if (tempoDecorrido > tempoDuracao) return;
+
           confetti({
             particleCount: 5,
             angle: 60,
             spread: 55,
             origin: { x: 0 },
-            colors: ['#22c55e', '#fbbf24', '#3b82f6']
+            colors: ['#22c55e', '#fbbf24', '#3b82f6'] // Verde, Dourado e Azul
           });
+          
           confetti({
             particleCount: 5,
             angle: 120,
@@ -181,11 +190,12 @@ export default function Home() {
             colors: ['#22c55e', '#fbbf24', '#3b82f6']
           });
 
-          if (Date.now() < end) {
-            requestAnimationFrame(frame);
-          }
+          // Chama o próximo frame repassando o loop
+          requestAnimationFrame(dispararFrame);
         };
-        frame();
+        
+        // Dá o primeiro empurrão na máquina de confetes
+        requestAnimationFrame(dispararFrame);
       }
 
     } catch (error) {
@@ -269,17 +279,30 @@ export default function Home() {
           
           <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-6 border border-slate-100 dark:border-slate-800">
             
-            <div className="absolute top-4 right-4 flex items-center gap-1">
+            <div className="absolute top-4 right-4 flex items-center gap-3">
+              
+              {/* BADGE DO USUÁRIO LOGADO */}
+              {user?.email && (
+                <div className="hidden sm:flex items-center gap-2 pr-3 pl-1 py-1 bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700 rounded-full">
+                  <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold uppercase shadow-sm">
+                    {user.email.charAt(0)}
+                  </div>
+                  <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                    {user.email}
+                  </span>
+                </div>
+              )}
+              
               <Link 
                 href="/configuracoes"
-                className="p-2 text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors flex items-center justify-center"
+                className="p-2 text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-full transition-colors flex items-center justify-center"
                 title="Configurações"
               >
                 <Settings className="w-5 h-5" />
               </Link>
               <button 
                 onClick={fazerLogout}
-                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors flex items-center justify-center"
+                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-colors flex items-center justify-center"
                 title="Sair"
               >
                 <LogOut className="w-5 h-5" />
