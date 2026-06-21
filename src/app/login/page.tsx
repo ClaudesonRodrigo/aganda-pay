@@ -23,7 +23,7 @@ export default function LoginPage() {
       await signInWithEmailAndPassword(auth, email, password);
       // Se der certo, joga o dono da agência para a Dashboard
       router.push("/");
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Erro no login:", error);
       setErro("Credenciais inválidas. Verifique seu e-mail e senha.");
       setCarregando(false);

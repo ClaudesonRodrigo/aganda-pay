@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { db, auth } from "@/lib/firebase";
@@ -10,11 +10,34 @@ import { ShieldCheck, Users, ArrowRight, Activity, ArrowLeft } from "lucide-reac
 // O SEU UID DE SEGURANÇA MÁXIMA
 const MEU_UID = "8LMLbOMGgtceH0Fn9Fq6ZdHHEIQ2";
 
+type UsuarioAdmin = {
+  uid: string;
+  email?: string | null;
+  ultimoAcesso: string;
+};
+
 export default function AdminDashboard() {
   const router = useRouter();
-  const [usuarios, setUsuarios] = useState<any[]>([]);
+  const [usuarios, setUsuarios] = useState<UsuarioAdmin[]>([]);
   const [autorizado, setAutorizado] = useState(false);
   const [carregando, setCarregando] = useState(true);
+
+  const buscarUsuarios = useCallback(async () => {
+    try {
+      const querySnapshot = await getDocs(collection(db, "usuarios"));
+      const lista: UsuarioAdmin[] = [];
+      querySnapshot.forEach((doc) => {
+        lista.push(doc.data() as UsuarioAdmin);
+      });
+      // Ordena pelos que acessaram mais recentemente
+      lista.sort((a, b) => new Date(b.ultimoAcesso).getTime() - new Date(a.ultimoAcesso).getTime());
+      setUsuarios(lista);
+      setCarregando(false);
+    } catch (error) {
+      console.error("Erro ao buscar usuários:", error);
+      setCarregando(false);
+    }
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -28,24 +51,7 @@ export default function AdminDashboard() {
       }
     });
     return () => unsubscribe();
-  }, [router]);
-
-  const buscarUsuarios = async () => {
-    try {
-      const querySnapshot = await getDocs(collection(db, "usuarios"));
-      const lista: any[] = [];
-      querySnapshot.forEach((doc) => {
-        lista.push(doc.data());
-      });
-      // Ordena pelos que acessaram mais recentemente
-      lista.sort((a, b) => new Date(b.ultimoAcesso).getTime() - new Date(a.ultimoAcesso).getTime());
-      setUsuarios(lista);
-      setCarregando(false);
-    } catch (error) {
-      console.error("Erro ao buscar usuários:", error);
-      setCarregando(false);
-    }
-  };
+  }, [buscarUsuarios, router]);
 
   const personificarCliente = (uidCliente: string) => {
     // Grava o UID do cliente no cache (Modo Deus) e manda para a Home
