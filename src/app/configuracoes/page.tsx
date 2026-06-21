@@ -4,9 +4,12 @@ import { useState, useEffect } from "react";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { db, auth } from "@/lib/firebase";
+import { isValidNonNegativeRate } from "@/lib/financialValidation";
 import { useRouter } from "next/navigation";
 import { Save, Phone, Percent, ArrowLeft, Settings, CheckCircle2, Instagram, Globe, ShieldAlert } from "lucide-react";
 import Link from "next/link";
+
+const PARCELAS_CREDITO = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
 export default function ConfiguracoesPage() {
   const router = useRouter();
@@ -15,6 +18,7 @@ export default function ConfiguracoesPage() {
   
   const [salvando, setSalvando] = useState(false);
   const [sucesso, setSucesso] = useState(false);
+  const [erroValidacao, setErroValidacao] = useState("");
 
   // Estado do Modo Deus
   const [isGodModeAtivo, setIsGodModeAtivo] = useState<string | null>(null);
@@ -81,8 +85,19 @@ export default function ConfiguracoesPage() {
   const salvarConfiguracoes = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
-    setSalvando(true);
+    setErroValidacao("");
     setSucesso(false);
+
+    const parcelasInvalidas = PARCELAS_CREDITO.filter(
+      (parcela) => !isValidNonNegativeRate(taxasCredito[parcela])
+    );
+
+    if (!isValidNonNegativeRate(taxaDebito) || parcelasInvalidas.length > 0) {
+      setErroValidacao("Revise as taxas. Use apenas números iguais ou maiores que zero.");
+      return;
+    }
+
+    setSalvando(true);
 
     try {
       const targetUid = isGodModeAtivo || user.uid;
@@ -112,7 +127,7 @@ export default function ConfiguracoesPage() {
     const num = parseFloat(valor.replace(",", "."));
     setTaxasCredito(prev => ({
       ...prev,
-      [parcela]: isNaN(num) ? 0 : num
+      [parcela]: num
     }));
   };
 
@@ -236,8 +251,9 @@ export default function ConfiguracoesPage() {
                   <div className="relative">
                     <input
                       type="number"
+                      min="0"
                       step="0.01"
-                      value={taxaDebito}
+                      value={Number.isNaN(taxaDebito) ? "" : taxaDebito}
                       onChange={(e) => setTaxaDebito(parseFloat(e.target.value))}
                       className="w-full pl-4 pr-10 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
                     />
@@ -249,14 +265,15 @@ export default function ConfiguracoesPage() {
                 <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700 md:col-span-2">
                   <label className="block text-sm font-bold text-slate-800 dark:text-slate-300 mb-4">Cartão de Crédito (Parcelado)</label>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((parcela) => (
+                    {PARCELAS_CREDITO.map((parcela) => (
                       <div key={parcela}>
                         <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">{parcela}x</label>
                         <div className="relative">
                           <input
                             type="number"
+                            min="0"
                             step="0.01"
-                            value={taxasCredito[parcela]}
+                            value={Number.isNaN(taxasCredito[parcela]) ? "" : taxasCredito[parcela]}
                             onChange={(e) => handleTaxaCreditoChange(parcela, e.target.value)}
                             className="w-full pl-3 pr-8 py-2 rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
                           />
@@ -270,6 +287,12 @@ export default function ConfiguracoesPage() {
             </div>
 
             <div className="pt-6 border-t border-slate-100 dark:border-slate-800">
+              {erroValidacao && (
+                <p className="mb-4 text-sm font-semibold text-red-600 dark:text-red-400">
+                  {erroValidacao}
+                </p>
+              )}
+
               <button
                 type="submit"
                 disabled={salvando}
