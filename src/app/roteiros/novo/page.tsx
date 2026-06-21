@@ -6,7 +6,7 @@ import { collection, addDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Plus, Trash2, Save, Image as ImageIcon, MapPin, Calendar, User as UserIcon, Loader2, CheckCircle2, Wand2, Sparkles } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Save, Image as ImageIcon, MapPin, Calendar, User as UserIcon, Loader2, CheckCircle2 } from "lucide-react";
 
 // Tipagem do nosso CRM de Roteiros
 interface DiaRoteiro {
@@ -15,7 +15,6 @@ interface DiaRoteiro {
   descricao: string;
   imagemUrl: string;
   fazendoUpload: boolean;
-  gerandoIA?: boolean;
 }
 
 export default function NovoRoteiroPage() {
@@ -33,7 +32,7 @@ export default function NovoRoteiroPage() {
   
   // Estado do Array de Dias
   const [dias, setDias] = useState<DiaRoteiro[]>([
-    { id: crypto.randomUUID(), titulo: "Dia 1 - Chegada", descricao: "", imagemUrl: "", fazendoUpload: false, gerandoIA: false }
+    { id: crypto.randomUUID(), titulo: "Dia 1 - Chegada", descricao: "", imagemUrl: "", fazendoUpload: false }
   ]);
 
   // Blindagem de Rota
@@ -85,45 +84,10 @@ export default function NovoRoteiroPage() {
     }
   };
 
-  // Função de Integração com a IA
-  const gerarTextoIA = async (diaId: string, tituloDia: string) => {
-    if (!destino) {
-      alert("Digite o 'Destino Principal' no topo da página antes de usar a IA.");
-      return;
-    }
-    if (!tituloDia || tituloDia.trim() === "") {
-      alert("Preencha o 'Título do Dia' para a IA saber o que inventar!");
-      return;
-    }
-
-    // Ativa o loading só no botão desse card
-    setDias(prev => prev.map(d => d.id === diaId ? { ...d, gerandoIA: true } : d));
-
-    try {
-      const res = await fetch('/api/gerar-descricao', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ destino, tituloDia })
-      });
-      
-      const data = await res.json();
-
-      if (data.texto) {
-        setDias(prev => prev.map(d => d.id === diaId ? { ...d, descricao: data.texto, gerandoIA: false } : d));
-      } else {
-        throw new Error(data.error || "Erro desconhecido na API.");
-      }
-    } catch (error) {
-      console.error("Erro na IA:", error);
-      alert("A Inteligência Artificial falhou. Tente novamente.");
-      setDias(prev => prev.map(d => d.id === diaId ? { ...d, gerandoIA: false } : d));
-    }
-  };
-
   const adicionarDia = () => {
     setDias(prev => [
       ...prev,
-      { id: crypto.randomUUID(), titulo: `Dia ${prev.length + 1} - `, descricao: "", imagemUrl: "", fazendoUpload: false, gerandoIA: false }
+      { id: crypto.randomUUID(), titulo: `Dia ${prev.length + 1} - `, descricao: "", imagemUrl: "", fazendoUpload: false }
     ]);
   };
 
@@ -152,7 +116,7 @@ export default function NovoRoteiroPage() {
 
     try {
       // Limpa os estados de controle antes de mandar pro banco de dados
-      const diasLimpos = dias.map(({ fazendoUpload, gerandoIA, ...resto }) => resto);
+      const diasLimpos = dias.map(({ fazendoUpload, ...resto }) => resto);
 
       await addDoc(collection(db, "roteiros"), {
         userId: user.uid,
@@ -194,11 +158,8 @@ export default function NovoRoteiroPage() {
         <div className="border-b border-slate-100 dark:border-slate-800 pb-6 mb-8">
           <div className="flex items-center gap-3 mb-2">
             <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Construtor de Roteiros</h1>
-            <span className="bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1">
-              <Sparkles className="w-3 h-3" /> IA Ativada
-            </span>
           </div>
-          <p className="text-sm text-slate-500">Crie experiências visuais com a ajuda da Inteligência Artificial.</p>
+          <p className="text-sm text-slate-500">Crie experiências visuais para apresentar ao cliente.</p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
@@ -309,25 +270,10 @@ export default function NovoRoteiroPage() {
                     />
                   </div>
                   <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Descrição do Passeio</label>
-                      
-                      {/* O BOTÃO MÁGICO DA IA */}
-                      <button
-                        type="button"
-                        onClick={() => gerarTextoIA(dia.id, dia.titulo)}
-                        disabled={dia.gerandoIA}
-                        className="text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 dark:text-indigo-400 dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors disabled:opacity-50"
-                        title="Deixe a IA escrever a descrição para você"
-                      >
-                        {dia.gerandoIA ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
-                        {dia.gerandoIA ? "IA Pensando..." : "Escrever com IA"}
-                      </button>
-
-                    </div>
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Descrição do Passeio</label>
                     <textarea
                       required
-                      placeholder="Descreva o que o cliente fará neste dia ou clique no botão de IA..."
+                      placeholder="Descreva o que o cliente fará neste dia..."
                       value={dia.descricao}
                       onChange={(e) => atualizarDia(dia.id, "descricao", e.target.value)}
                       rows={4}
@@ -344,7 +290,7 @@ export default function NovoRoteiroPage() {
         <div className="mt-10 pt-6 border-t border-slate-100 dark:border-slate-800 flex justify-end">
           <button
             type="submit"
-            disabled={salvando || dias.some(d => d.fazendoUpload || d.gerandoIA)}
+            disabled={salvando || dias.some(d => d.fazendoUpload)}
             className="w-full md:w-auto px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-all disabled:opacity-70 shadow-lg shadow-blue-500/30"
           >
             {salvando || sucesso ? (
