@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { calculateAmountWithRate, calculateInstallmentAmount } from "@/lib/financialCalculations";
 import { CreditCard, Wallet, AlertCircle, QrCode, MessageCircle, CheckCircle2, Instagram, Globe } from "lucide-react";
 
 type OpcaoSelecionada = {
@@ -113,7 +114,7 @@ export default function CheckoutPage() {
   }
 
   // 🟢 REATORAÇÃO DE PERFORMANCE: Funções de cálculo limpas
-  const calcularValor = (taxa: number) => data.v * (1 + (taxa / 100));
+  const calcularValor = (taxa: number) => calculateAmountWithRate(data.v, taxa);
   
   const formatarMoeda = (valor: number) => valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -199,7 +200,7 @@ export default function CheckoutPage() {
               {Object.entries(configuracoes.taxas.credito).map(([parcela, taxa]) => {
                 const numParcelas = Number(parcela);
                 const valorTotalComJuros = calcularValor(taxa);
-                const valorDaParcela = valorTotalComJuros / numParcelas;
+                const valorDaParcela = calculateInstallmentAmount(valorTotalComJuros, numParcelas);
                 const idParcela = `credito-${parcela}`;
                 const resumoParcela = `Crédito em ${numParcelas}x de ${formatarMoeda(valorDaParcela)}`;
 
