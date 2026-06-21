@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { calculateAmountWithRate, calculateInstallmentAmount } from "@/lib/financialCalculations";
+import { resolveCheckoutRates, type CheckoutRates } from "@/lib/financialConfiguration";
 import { CreditCard, Wallet, AlertCircle, QrCode, MessageCircle, CheckCircle2, Instagram, Globe } from "lucide-react";
 
 type OpcaoSelecionada = {
@@ -17,10 +18,14 @@ type ConfiguracoesAtuais = {
   whatsapp: string;
   instagram?: string;
   site?: string;
-  taxas: {
-    debito: number;
-    credito: { [key: number]: number };
-  }
+  taxas: CheckoutRates;
+};
+
+type ConfiguracaoFirestore = Partial<Omit<ConfiguracoesAtuais, "taxas">> & {
+  taxas?: {
+    debito?: unknown;
+    credito?: unknown;
+  };
 };
 
 type DataPayload = {
@@ -28,6 +33,29 @@ type DataPayload = {
   v: number;
   img?: string | null;
   userId: string;
+};
+
+const FALLBACK_CONFIGURACOES: ConfiguracoesAtuais = {
+  whatsapp: "5579999999999",
+  instagram: "",
+  site: "",
+  taxas: {
+    debito: 1.37,
+    credito: {
+      1: 3.15,
+      2: 5.39,
+      3: 6.12,
+      4: 6.85,
+      5: 7.57,
+      6: 8.28,
+      7: 8.99,
+      8: 9.69,
+      9: 10.38,
+      10: 11.06,
+      11: 11.74,
+      12: 12.40,
+    },
+  },
 };
 
 export default function CheckoutPage() {
@@ -55,29 +83,30 @@ export default function CheckoutPage() {
           setData({ p: dados.pacote, v: dados.valor, img: dados.imagem || null, userId: donoDoLink });
 
           // Passo B: Vai no cofre de configurações ESPECÍFICO do dono do link
-          let configRef = doc(db, "configuracoes", donoDoLink);
-          let configSnap = await getDoc(configRef);
+          const ownerConfigRef = doc(db, "configuracoes", donoDoLink);
+          const ownerConfigSnap = await getDoc(ownerConfigRef);
+          const ownerConfig = ownerConfigSnap.exists()
+            ? (ownerConfigSnap.data() as ConfiguracaoFirestore)
+            : undefined;
 
-          // 🟢 CORREÇÃO DE MIGRAÇÃO: Se o cofre específico não existir, busca o antigo "geral"
-          if (!configSnap.exists()) {
-            configRef = doc(db, "configuracoes", "geral");
-            configSnap = await getDoc(configRef);
-          }
+          // 🟢 CORREÇÃO DE MIGRAÇÃO: mantém o antigo "geral" como fallback defensivo
+          const generalConfigRef = doc(db, "configuracoes", "geral");
+          const generalConfigSnap = await getDoc(generalConfigRef);
+          const generalConfig = generalConfigSnap.exists()
+            ? (generalConfigSnap.data() as ConfiguracaoFirestore)
+            : undefined;
 
-          if (configSnap.exists()) {
-            setConfiguracoes(configSnap.data() as ConfiguracoesAtuais);
-          } else {
-            // Se realmente nenhum dos dois existir, usa a taxa de segurança
-            setConfiguracoes({
-              whatsapp: "5579999999999",
-              instagram: "",
-              site: "",
-              taxas: {
-                debito: 1.37,
-                credito: { 1: 3.15, 2: 5.39, 3: 6.12, 4: 6.85, 5: 7.57, 6: 8.28, 7: 8.99, 8: 9.69, 9: 10.38, 10: 11.06, 11: 11.74, 12: 12.40 }
-              }
-            });
-          }
+          const baseConfig = ownerConfig ?? generalConfig ?? FALLBACK_CONFIGURACOES;
+
+          setConfiguracoes({
+            ...FALLBACK_CONFIGURACOES,
+            ...baseConfig,
+            taxas: resolveCheckoutRates(
+              ownerConfig?.taxas,
+              generalConfig?.taxas,
+              FALLBACK_CONFIGURACOES.taxas
+            ),
+          });
         } else {
           setError(true); // Link não existe
         }
