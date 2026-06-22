@@ -2,13 +2,21 @@
 
 import { useState, useEffect } from "react";
 import { Link as LinkIcon, Copy, CheckCircle2, Plane, DollarSign, Sparkles, Trash2, Clock, ExternalLink, LogOut, Settings, XCircle, Undo2, Image as ImageIcon, ShieldAlert } from "lucide-react";
-import { collection, addDoc, query, onSnapshot, deleteDoc, doc, where, updateDoc, setDoc } from "firebase/firestore";
+import { collection, addDoc, query, onSnapshot, deleteDoc, doc, where, updateDoc, setDoc, getDoc } from "firebase/firestore";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { db, auth } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import confetti from 'canvas-confetti';
 import CountUp from 'react-countup';
+import CommercialInstallmentsModal from "@/components/CommercialInstallmentsModal";
+import {
+  generateCommercialInstallmentOptions,
+  type CommercialInstallmentOption,
+} from "@/lib/commercialInstallments";
+import { resolveCheckoutRates, type CheckoutRates } from "@/lib/financialConfiguration";
+import { downloadCommercialInstallmentsPng } from "@/lib/imageExport";
+import { TAXAS_MAQUININHAS } from "@/config/rates";
 
 interface LinkHistorico {
   id: string;
@@ -20,6 +28,23 @@ interface LinkHistorico {
   userId: string;
   status: 'Aberto' | 'Pago' | 'Cancelado';
 }
+
+type ConfiguracaoFirestore = {
+  taxas?: {
+    debito?: unknown;
+    credito?: unknown;
+  };
+};
+
+type CommercialPreviewData = {
+  proposal: LinkHistorico;
+  installmentOptions: CommercialInstallmentOption[];
+};
+
+const FALLBACK_TAXAS: CheckoutRates = {
+  debito: TAXAS_MAQUININHAS.infinitepay.debito,
+  credito: TAXAS_MAQUININHAS.infinitepay.credito,
+};
 
 export default function Home() {
   const router = useRouter();
@@ -36,6 +61,13 @@ export default function Home() {
   const [copiado, setCopiado] = useState<string | null>(null);
   const [historico, setHistorico] = useState<LinkHistorico[]>([]);
   const [carregandoDB, setCarregandoDB] = useState(true);
+  const [selectedCommercialProposal, setSelectedCommercialProposal] =
+    useState<CommercialPreviewData | null>(null);
+  const [isLoadingCommercialPreview, setIsLoadingCommercialPreview] =
+    useState<string | null>(null);
+  const [isGeneratingCommercialImage, setIsGeneratingCommercialImage] =
+    useState(false);
+  const [commercialPreviewError, setCommercialPreviewError] = useState<string | null>(null);
 
   // O SEU UID MESTRE
   const MEU_UID = "8LMLbOMGgtceH0Fn9Fq6ZdHHEIQ2";
@@ -214,6 +246,84 @@ export default function Home() {
     navigator.clipboard.writeText(texto);
     setCopiado(idRef);
     setTimeout(() => setCopiado(null), 2000);
+  };
+
+  const propostaTemDadosParaImagem = (item: LinkHistorico) =>
+    Number.isFinite(item.valor) && item.valor > 0 && Boolean(item.userId);
+
+  const abrirPreviewComercial = async (item: LinkHistorico) => {
+    if (isLoadingCommercialPreview || isGeneratingCommercialImage) return;
+
+    setCommercialPreviewError(null);
+
+    if (!propostaTemDadosParaImagem(item)) {
+      setCommercialPreviewError("Não foi possível gerar a imagem porque os dados da proposta são inválidos.");
+      return;
+    }
+
+    setIsLoadingCommercialPreview(item.id);
+
+    try {
+      const ownerConfigSnap = await getDoc(doc(db, "configuracoes", item.userId));
+      const ownerConfig = ownerConfigSnap.exists()
+        ? (ownerConfigSnap.data() as ConfiguracaoFirestore)
+        : undefined;
+
+      const generalConfigSnap = await getDoc(doc(db, "configuracoes", "geral"));
+      const generalConfig = generalConfigSnap.exists()
+        ? (generalConfigSnap.data() as ConfiguracaoFirestore)
+        : undefined;
+
+      const resolvedRates = resolveCheckoutRates(
+        ownerConfig?.taxas,
+        generalConfig?.taxas,
+        FALLBACK_TAXAS
+      );
+
+      const installmentOptions = generateCommercialInstallmentOptions(
+        item.valor,
+        resolvedRates.credito,
+        1,
+        10
+      );
+
+      setSelectedCommercialProposal({
+        proposal: item,
+        installmentOptions,
+      });
+    } catch (error) {
+      console.error("Erro ao carregar condições de pagamento:", error);
+      setCommercialPreviewError("Não foi possível carregar as condições de pagamento. Tente novamente.");
+    } finally {
+      setIsLoadingCommercialPreview(null);
+    }
+  };
+
+  const fecharPreviewComercial = () => {
+    if (isGeneratingCommercialImage) return;
+
+    setSelectedCommercialProposal(null);
+    setCommercialPreviewError(null);
+  };
+
+  const baixarImagemComercial = async (element: HTMLDivElement) => {
+    if (!selectedCommercialProposal || isGeneratingCommercialImage) return;
+
+    setIsGeneratingCommercialImage(true);
+    setCommercialPreviewError(null);
+
+    try {
+      await downloadCommercialInstallmentsPng(
+        element,
+        selectedCommercialProposal.proposal.pacote,
+        selectedCommercialProposal.proposal.id
+      );
+    } catch (error) {
+      console.error("Erro ao gerar imagem comercial:", error);
+      setCommercialPreviewError("Não foi possível gerar a imagem. Tente novamente.");
+    } finally {
+      setIsGeneratingCommercialImage(false);
+    }
   };
 
   const formatarMoeda = (valorAFormatar: string | number) => {
@@ -437,6 +547,12 @@ export default function Home() {
             </div>
           </div>
 
+          {commercialPreviewError && !selectedCommercialProposal && (
+            <p className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-600 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-400">
+              {commercialPreviewError}
+            </p>
+          )}
+
           {carregandoDB ? (
             <div className="flex flex-col items-center justify-center h-full text-slate-400">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>
@@ -465,6 +581,23 @@ export default function Home() {
                           <button onClick={() => copiarParaAreaDeTransferencia(item.url, item.id)} className="flex-1 flex items-center justify-center gap-1 p-1.5 bg-slate-100 dark:bg-slate-700 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 text-xs font-semibold transition-colors">
                             {copiado === item.id ? <CheckCircle2 size={14} className="text-green-500"/> : <Copy size={14} />} Copiar
                           </button>
+                          {propostaTemDadosParaImagem(item) && (
+                            <button
+                              type="button"
+                              onClick={() => abrirPreviewComercial(item)}
+                              disabled={isLoadingCommercialPreview === item.id}
+                              title="Gerar imagem das parcelas"
+                              aria-label="Gerar imagem das parcelas"
+                              className="flex-1 flex items-center justify-center gap-1 p-1.5 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-70"
+                            >
+                              {isLoadingCommercialPreview === item.id ? (
+                                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-blue-300 border-b-blue-700 dark:border-blue-700 dark:border-b-blue-200" />
+                              ) : (
+                                <ImageIcon size={14} />
+                              )}
+                              <span>{isLoadingCommercialPreview === item.id ? "Carregando" : "Imagem"}</span>
+                            </button>
+                          )}
                           <a href={item.url} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-slate-100 dark:bg-slate-700 rounded-lg text-slate-600 dark:text-slate-300 hover:text-blue-500 transition-colors">
                             <ExternalLink size={14} />
                           </a>
@@ -539,6 +672,17 @@ export default function Home() {
           )}
         </div>
       </div>
+      <CommercialInstallmentsModal
+        isOpen={Boolean(selectedCommercialProposal)}
+        proposalTitle={selectedCommercialProposal?.proposal.pacote ?? ""}
+        proposalId={selectedCommercialProposal?.proposal.id ?? ""}
+        pixAmount={selectedCommercialProposal?.proposal.valor ?? 0}
+        installmentOptions={selectedCommercialProposal?.installmentOptions ?? []}
+        isGenerating={isGeneratingCommercialImage}
+        generationError={selectedCommercialProposal ? commercialPreviewError : null}
+        onDownload={baixarImagemComercial}
+        onClose={fecharPreviewComercial}
+      />
     </>
   );
 }
