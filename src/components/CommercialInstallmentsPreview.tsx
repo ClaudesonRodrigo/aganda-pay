@@ -69,12 +69,12 @@ export default function CommercialInstallmentsPreview({
             {installmentOptions.map((option) => (
               <div
                 key={option.installments}
-                className="flex min-h-[46px] min-w-0 flex-col justify-center gap-1 overflow-visible rounded-2xl border border-slate-200/90 bg-white px-2.5 py-2 text-slate-900 shadow-[0_9px_18px_rgba(15,23,42,0.06)] max-[430px]:min-h-[38px] max-[430px]:gap-0.5 max-[430px]:rounded-xl max-[430px]:px-2 max-[430px]:py-1.5"
+                className="flex min-h-[46px] min-w-0 flex-row items-center justify-between gap-2 overflow-visible rounded-2xl border border-slate-200/90 bg-white px-2.5 py-2 text-slate-900 shadow-[0_9px_18px_rgba(15,23,42,0.06)] max-[430px]:min-h-[38px] max-[430px]:gap-1.5 max-[430px]:rounded-xl max-[430px]:px-2 max-[430px]:py-1.5"
               >
-                <p className="w-fit rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-black leading-[1.1] text-blue-700 ring-1 ring-blue-100 max-[430px]:px-1.5 max-[430px]:text-[8px]">
+                <p className="w-fit shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-black leading-[1.1] text-blue-700 ring-1 ring-blue-100 max-[430px]:px-1.5 max-[430px]:text-[8px]">
                   {option.installments}x
                 </p>
-                <p className="min-w-0 whitespace-nowrap text-[14px] font-black leading-[1.15] tabular-nums text-slate-950 max-[430px]:text-[10px]">
+                <p className="min-w-0 whitespace-nowrap text-right text-[14px] font-black leading-[1.15] tabular-nums text-slate-950 max-[430px]:text-[10px]">
                   {formatCurrency(option.installmentAmount)}
                 </p>
               </div>
